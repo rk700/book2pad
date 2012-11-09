@@ -45,12 +45,9 @@ def parse_plist(plist):
     except PermissionError:
         raise
     except FileNotFoundError:
-        try:
+        if not os.path.isdir(os.path.dirname(plist)):
             os.makedirs(os.path.dirname(plist))
-        except:
-            pass
-        finally:
-            tree = new_plist()
+        tree = new_plist()
     try:
         if not tree.getroot()[0][1].tag == 'array':
             raise IndexError

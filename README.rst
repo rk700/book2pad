@@ -6,7 +6,7 @@ book2pad is a simple script for transferring books(PDF or EPUB) from linux machi
 Requirements
 ------------
 
-* install `ifuse <www.ifuse.org>`_ on your computer
+* install `ifuse <http://www.libimobiledevice.org>`_ on your computer
 * install ibooks on your ipad
 
 Usage
