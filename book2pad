@@ -20,6 +20,7 @@ import sys
 import shutil
 import hashlib
 import xml.etree.ElementTree as et
+import zipfile
 
 
 def new_plist():
@@ -105,7 +106,10 @@ def addbooks(root_dir, books):
                     fail_list.append(book)
                 else:
                     array.append(Book(book))
-                    shutil.copyfile(book, os.path.join(dest,os.path.basename(book)))
+                    folder = os.path.join(dest,os.path.basename(book))
+                    os.mkdir(folder)
+                    with zipfile.ZipFile(book, "r") as z:
+                            z.extractall(folder)
             step_len += bar_len
             if step_len >= book_num:
                 sys.stdout.write("\b%s>" % '='*int(float(step_len)/book_num))
