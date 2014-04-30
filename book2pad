@@ -38,7 +38,7 @@ def new_plist():
     array.tail = '\n'
     dic.append(array)
     return et.ElementTree(root)
-    
+
 def parse_plist(plist):
     try:
         tree = et.parse(plist)
@@ -67,7 +67,7 @@ class Book(et.Element):
         self.add_attrib('Package Hash', md5.hexdigest().upper())
         self.add_attrib('Path', os.path.basename(book))
         self[-1].tail = '\n\t\t'
-        
+
     def add_attrib(self, key, value):
         key_ele = et.Element('key')
         key_ele.text = key
@@ -77,7 +77,7 @@ class Book(et.Element):
         value_ele.text = value
         value_ele.tail = '\n\t\t\t'
         self.append(value_ele)
-  
+
 def addbooks(root_dir, books):
     book_num = len(books)
     if book_num == 0:
@@ -125,7 +125,7 @@ def addbooks(root_dir, books):
                 print('The following books are not transfered:')
                 for book in fail_list:
                     print(book)
-            
+
 
 def show_usage():
     print('Usage: book2pad [-d IPAD_MOUNTED_POINT] book1 [book2 book3 ...]\n')
@@ -147,4 +147,4 @@ if __name__ == '__main__':
         print('Wrong arguments!\n')
         show_usage()
     except PermissionError as inst:
-       print(inst.args) 
+       print(inst.args)
