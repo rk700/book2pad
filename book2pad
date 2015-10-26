@@ -20,6 +20,7 @@ import sys
 import shutil
 import hashlib
 import xml.etree.ElementTree as et
+import zipfile
 
 
 def new_plist():
@@ -38,12 +39,10 @@ def new_plist():
     array.tail = '\n'
     dic.append(array)
     return et.ElementTree(root)
-    
+
 def parse_plist(plist):
     try:
         tree = et.parse(plist)
-    except PermissionError:
-        raise
     except FileNotFoundError:
         if not os.path.isdir(os.path.dirname(plist)):
             os.makedirs(os.path.dirname(plist))
@@ -67,7 +66,7 @@ class Book(et.Element):
         self.add_attrib('Package Hash', md5.hexdigest().upper())
         self.add_attrib('Path', os.path.basename(book))
         self[-1].tail = '\n\t\t'
-        
+
     def add_attrib(self, key, value):
         key_ele = et.Element('key')
         key_ele.text = key
@@ -77,55 +76,54 @@ class Book(et.Element):
         value_ele.text = value
         value_ele.tail = '\n\t\t\t'
         self.append(value_ele)
-  
+
 def addbooks(root_dir, books):
     book_num = len(books)
     if book_num == 0:
         raise IndexError
     else:
         plist = os.path.join(root_dir, 'Books/Purchases/Purchases.plist')
-        try:
-            tree, array = parse_plist(plist)
-        except PermissionError:
-            raise
-        else:
-            dest = os.path.dirname(plist)
-            fail_list = []
+        tree, array = parse_plist(plist)
+        dest = os.path.dirname(plist)
+        fail_list = []
 
-            bar_len = int(int(os.popen('stty size', 'r').read().split()[1])*.75)
-            step_len = 0
-            print('Start transferring...')
-            sys.stdout.write("[%s]" % (" " * (bar_len+1)))
-            sys.stdout.flush()
-            sys.stdout.write('%s%s' % ("\b" * (bar_len+2),'>'))
-            sys.stdout.flush()
+        bar_len = int(int(os.popen('stty size', 'r').read().split()[1])*.75)
+        step_len = 0
+        print('Start transferring...')
+        sys.stdout.write("[%s]" % (" " * (bar_len+1)))
+        sys.stdout.flush()
+        sys.stdout.write('%s%s' % ("\b" * (bar_len+2),'>'))
+        sys.stdout.flush()
 
-            if len(array) > 0:
-                array[-1].tail = '\n\t\t'
-            for book in books:
-                if not os.path.exists(book):
+        if len(array) > 0:
+            array[-1].tail = '\n\t\t'
+        for book in books:
+            if not os.path.exists(book):
+                fail_list.append(book)
+            else:
+                ext = os.path.splitext(book)[1].upper()
+                if not (ext == '.PDF' or ext == '.EPUB'):
                     fail_list.append(book)
                 else:
-                    ext = os.path.splitext(book)[1].upper()
-                    if not (ext == '.PDF' or ext == '.EPUB'):
-                        fail_list.append(book)
-                    else:
-                        array.append(Book(book))
-                        shutil.copyfile(book, os.path.join(dest,os.path.basename(book)))
-                step_len += bar_len
-                if step_len >= book_num:
-                    sys.stdout.write("\b%s>" % '='*int(float(step_len)/book_num))
-                    sys.stdout.flush()
-                    step_len = step_len%book_num
-            array[-1].tail = '\n\t'
-            tree.write(plist,'utf-8', True)
-            sys.stdout.write('\n')
-            print('Finished: %s books transfered' % str(len(books)-len(fail_list)))
-            if len(fail_list):
-                print('The following books are not transfered:')
-                for book in fail_list:
-                    print(book)
-            
+                    array.append(Book(book))
+                    folder = os.path.join(dest,os.path.basename(book))
+                    os.mkdir(folder)
+                    with zipfile.ZipFile(book, "r") as z:
+                            z.extractall(folder)
+            step_len += bar_len
+            if step_len >= book_num:
+                sys.stdout.write("\b%s>" % '='*int(float(step_len)/book_num))
+                sys.stdout.flush()
+                step_len = step_len%book_num
+        array[-1].tail = '\n\t'
+        tree.write(plist,'utf-8', True)
+        sys.stdout.write('\n')
+        print('Finished: %s books transfered' % str(len(books)-len(fail_list)))
+        if len(fail_list):
+            print('The following books are not transfered:')
+            for book in fail_list:
+                print(book)
+
 
 def show_usage():
     print('Usage: book2pad [-d IPAD_MOUNTED_POINT] book1 [book2 book3 ...]\n')
@@ -146,5 +144,3 @@ if __name__ == '__main__':
     except IndexError:
         print('Wrong arguments!\n')
         show_usage()
-    except PermissionError as inst:
-       print(inst.args) 
