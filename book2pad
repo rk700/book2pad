@@ -118,6 +118,7 @@ def addbooks(root_dir, books):
         if not optimized and len(array) > 0:
             array[-1].tail = '\n\t\t'
         for book in books:
+            book = book.decode('utf-8')
             if not os.path.exists(book):
                 fail_list.append(book)
             else:
