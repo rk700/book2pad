@@ -103,7 +103,7 @@ def addbooks(root_dir, books):
             assert tree.items()[0][0] == 'Books'
             array = tree.items()[0][1]
             optimized = True #biplist optimized.
-            print "Optimized plist"
+            print("Optimized plist")
         dest = os.path.dirname(plist)
         fail_list = []
 
