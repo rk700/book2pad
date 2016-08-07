@@ -197,7 +197,6 @@ if __name__ == '__main__':
             ipad_path = os.path.abspath(args.IPAD_MOUNTED_POINT)
 
         for book_path in book_list:
-            book_path = book_path.decode('utf-8')
             if os.path.isdir(book_path):
                 books += walkdir(book_path)
             else:
