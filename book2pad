@@ -21,6 +21,8 @@ import shutil
 import hashlib
 import xml.etree.ElementTree as et
 import zipfile
+import argparse
+import traceback
 
 
 def new_plist():
@@ -76,7 +78,7 @@ class Book(et.Element):
         value_ele.text = value
         value_ele.tail = '\n\t\t\t'
         self.append(value_ele)
-        
+
 def optimizedEntry(book):
     md5 = hashlib.md5()
     md5.update(open(book,'rb').read())
@@ -128,16 +130,26 @@ def addbooks(root_dir, books):
                         array.append( optimizedEntry(book) )
                     else:
                         array.append(Book(book))
-                    shutil.copyfile(book, os.path.join(dest, os.path.basename(book)))
+
+                    book_path = os.path.join(dest, os.path.basename(book))
+                    if os.path.exists(book_path):
+                        fail_list.append(book)
+                        continue
+
+                    shutil.copyfile(book, book_path)
                 elif '.EPUB' == ext:
+                    folder = os.path.join(dest, os.path.basename(book))
+                    if os.path.exists(folder):
+                        fail_list.append(book)
+                        continue
+
+                    os.mkdir(folder)
                     if optimized:
                         array.append( optimizedEntry(book) )
                     else:
                         array.append(Book(book))
-                    folder = os.path.join(dest, os.path.basename(book))
-                    os.mkdir(folder)
                     with zipfile.ZipFile(book, "r") as z:
-                            z.extractall(folder)
+                        z.extractall(folder)
                 else:
                     fail_list.append(book)
             step_len += bar_len
@@ -157,23 +169,42 @@ def addbooks(root_dir, books):
             for book in fail_list:
                 print(book)
 
+def walkdir(dirname):
+    books = []
+    for cur, _dirs, files in os.walk(dirname):
+        for f in files:
+            real_path = os.path.join(cur, f)
+            books.append(real_path)
 
-def show_usage():
-    print('Usage: book2pad [-d IPAD_MOUNTED_POINT] book1 [book2 book3 ...]\n')
-    print('Use "-d" to indicate where ipad is mounted; '\
-          'if omitted, the current\nworking directory '\
-          'will be treated as where ipad is mounted.')
-
+    return books
 
 if __name__ == '__main__':
     try:
-        if sys.argv[1] == '-h' or sys.argv[1] == '--help':
-            show_usage()
+        parser = argparse.ArgumentParser(description='Transfer books to ipad')
+        parser.add_argument('-d', '--ipad', action='store', dest='IPAD_MOUNTED_POINT',
+                            help='Indicate path ipad is mounted; if omitted, the current working directory will be treated.')
+        parser.add_argument('-b', '--book', type=str, required=True, action='append', dest='BOOK', nargs='+',
+                            help='Indicate book path to transfer; if path is a directory, all books under that will be transfered.')
+        parser.add_argument('--version', action='version', version='%(prog)s 1.0')
+
+        args = parser.parse_args()
+        book_list = args.BOOK[0]
+        books = []
+
+        if args.IPAD_MOUNTED_POINT is None:
+            ipad_path = os.getcwd()
         else:
-            if sys.argv[1] == '-d':
-                addbooks(os.path.abspath(sys.argv[2]), sys.argv[3:])
+            ipad_path = os.path.abspath(args.IPAD_MOUNTED_POINT)
+
+        for book_path in book_list:
+            book_path = book_path.decode('utf-8')
+            if os.path.isdir(book_path):
+                books += walkdir(book_path)
             else:
-                addbooks(os.getcwd(), sys.argv[1:])
-    except IndexError:
-        print('Wrong arguments!\n')
-        show_usage()
+                books.append(book_path)
+
+        if len(books) > 0:
+            addbooks(os.path.abspath(ipad_path), books)
+
+    except Exception,e:
+        traceback.print_exc()
