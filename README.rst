@@ -24,7 +24,7 @@ Requirements
 Usage
 -----
 
-First, I want to recommend this library structure: your_library. This script would tried to read title and author from book's metadata, otherwise would tried to parse filename.
+First, I want to recommend this library structure: [your_library](https://github.com/qunxyz/book2pad/tree/master/your_library). This script would tried to read title and author from book's metadata, otherwise would tried to parse filename.
 
 If the iPad's contents don't show up immediately after plugging in, mount your ipad somewhere using ifuse, say /media
 
