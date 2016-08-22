@@ -1,173 +1,238 @@
 #!/usr/bin/env python
 #-*- coding: utf8 -*-
-#
-# Copyright (C) 2012 Ruikai Liu <lrk700@gmail.com>
-#
-# This file is part of rbook.
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-
 import os
 import sys
-import shutil
 import hashlib
-import xml.etree.ElementTree as et
-import zipfile
+import shutil
 import argparse
+import re
 import traceback
+import pyexifinfo as exif
+import zipfile
+import time
+from biplist import *
+from binaryornot.check import is_binary
 
 
-def new_plist():
-    root = et.Element('plist', {'version':'1.0'})
-    root.text = '\n'
-    dic = et.Element('dict')
-    dic.text = '\n\t'
-    dic.tail = '\n'
-    root.append(dic)
-    key = et.Element('key')
-    key.text = 'Books'
-    key.tail = '\n\t'
-    dic.append(key)
-    array = et.Element('array')
-    array.text = '\n\t\t'
-    array.tail = '\n'
-    dic.append(array)
-    return et.ElementTree(root)
+class IBooks():
+    def __init__(self, plist):
+        self.plist = plist
+        self.ibooks_path = os.path.basename(self.plist)
+        self.init_tree()
 
-def parse_plist(plist):
-    if os.path.exists(plist):
-        tree = et.parse(plist)
-    else:
-        if not os.path.isdir(os.path.dirname(plist)):
-            os.makedirs(os.path.dirname(plist))
-        tree = new_plist()
-    try:
-        if not tree.getroot()[0][1].tag == 'array':
-            raise IndexError
-    except:
-        tree = new_plist()
-    finally:
-        return (tree, tree.getroot()[0][1])
+    def init_tree(self):
+        self.is_binary = False
+        self.tree = {
+            'Books': []
+        }
+        if os.path.exists(self.plist):
+            self.is_binary = is_binary(self.plist)
+            try:
+                self.tree = readPlist(self.plist)
+            except:
+                print "Unexpected error:", sys.exc_info()[0]
 
-class Book(et.Element):
-    def __init__(self,book):
-        et.Element.__init__(self, 'dict')
-        self.text = '\n\t\t\t'
-        self.tail = '\n\t\t'
+    def add_book(self, book):
+        self.tree['Books'].append(book.tree)
+        self.save()
+
+    def check_book(self, book):
+        in_flag = False
+        for item in self.tree['Books']:
+            if item['Package Hash'] == hash_md5(book):
+                in_flag = True
+                continue
+
+        return in_flag
+
+    def clear(self):
+        books = walkdir(self.ibooks_path)
+        for book in books:
+            if not self.check_book(book):
+                if os.path.isfile(book):
+                    os.remove(book)
+                elif os.path.isdir(book):
+                    shutil.rmtree(book)
+
+    def save(self, force = False):
+        try:
+            writePlist(self.tree, self.plist, binary=self.is_binary)
+        except IOError:
+            if force:
+                print("\nIf you seen this message, please open your ibooks. Don't disconnect your ipad!")
+                time.sleep(10)
+                self.save(force)
+
+        except:
+            self.clear()
+            print "Unexpected error:", sys.exc_info()[0]
+            raise
+
+
+class Book():
+    def __init__(self, book):
+        self.tree = {}
         self.add_attrib('Name', os.path.splitext(os.path.basename(book))[0])
-        md5 = hashlib.md5()
-        md5.update(open(book,'rb').read())
-        self.add_attrib('Package Hash', md5.hexdigest().upper())
+        self.add_attrib('Inserted-By-iBooks', False)
+        self.add_attrib('Package Hash', hash_md5(book))
         self.add_attrib('Path', os.path.basename(book))
-        self[-1].tail = '\n\t\t'
 
     def add_attrib(self, key, value):
-        key_ele = et.Element('key')
-        key_ele.text = key
-        key_ele.tail = '\n\t\t\t'
-        self.append(key_ele)
-        value_ele = et.Element('string')
-        value_ele.text = value
-        value_ele.tail = '\n\t\t\t'
-        self.append(value_ele)
+        self.tree[key] = value
 
-def optimizedEntry(book):
+    def get_attrib(self, key):
+        return self.tree[key]
+
+
+def hash_md5(book):
     md5 = hashlib.md5()
-    md5.update(open(book,'rb').read())
-    fileHash = md5.hexdigest().upper()
-    output = { 'Name': os.path.splitext(os.path.basename(book))[0],
-               'Package Hash': fileHash,
-               'Path': os.path.basename(book) }
-    return output
+    md5.update(open(book, 'rb').read())
+
+    return md5.hexdigest().upper()
+
+
+def get_string(val):
+    if isinstance(val, int):
+        return str(val)
+
+    if isinstance(val, str):
+        return unicode(val, 'utf8')
+
+    if isinstance(val, list):
+        new_val = []
+        for item in val:
+            new_val.append(get_string(item))
+
+        return ' '.join(new_val)
+
+    return val
+
+
+def get_file_info(book):
+    result = {
+        'title': '',
+        'author': ''
+    }
+    metadata = exif.get_json(book)
+
+    filename = os.path.splitext(get_string(metadata[0]['File:FileName']))[0]
+    file_info = filename.split('-')
+
+    result['title'] = filename
+    result['author'] = get_string(file_info[-1])
+
+    return result
+
+
+def get_book_info(book):
+    result = {
+        'title': '',
+        'genre': '',
+        'author': ''
+    }
+
+    folder_path = os.path.dirname(book)
+    path, genre = os.path.split(folder_path)
+    result['genre'] = get_string(genre)
+
+    metadata = exif.get_json(book)
+
+    try:
+        title = get_string(metadata[0]['XMP:Title'])
+        author = get_string(metadata[0]['XMP:Creator'])
+    except:
+        file_info = get_file_info(book)
+
+        title = file_info['title']
+        author = file_info['author']
+
+    search_obj = re.search(r'[A-Za-z0-9]+', author, re.M|re.I)
+    if search_obj and len(search_obj.group(0)) > 10:
+        file_info = get_file_info(book)
+
+        title = file_info['title']
+        author = file_info['author']
+
+    result['title'] = title
+    result['author'] = author
+
+    return result
+
 
 def addbooks(root_dir, books):
     book_num = len(books)
     if book_num == 0:
-        raise IndexError
-    else:
-        plist = os.path.join(root_dir, 'Books/Purchases/Purchases.plist')
-        try:
-            tree, array = parse_plist(plist)
-            #Non-optimized is a plain xml file
-            optimized = False
-        except et.ParseError:
-            import biplist
-            #A completely different format! Not plain xml.
-            tree = biplist.readPlist(plist)
-            assert tree.items()[0][0] == 'Books'
-            array = tree.items()[0][1]
-            optimized = True #biplist optimized.
-            print("Optimized plist")
-        dest = os.path.dirname(plist)
-        fail_list = []
+        print 'No pdf or epub file found!'
+        return
 
-        bar_len = int(int(os.popen('stty size', 'r').read().split()[1])*.75)
-        step_len = 0
-        print('Start transferring...')
-        sys.stdout.write("[%s]" % (" " * (bar_len+1)))
-        sys.stdout.flush()
-        sys.stdout.write('%s%s' % ("\b" * (bar_len+2),'>'))
-        sys.stdout.flush()
+    # init vars
+    plist = os.path.join(root_dir, 'Books/Purchases/Purchases.plist')
+    dest = os.path.dirname(plist)
+    fail_list = []
+    ibooks = IBooks(plist)
 
-        if not optimized and len(array) > 0:
-            array[-1].tail = '\n\t\t'
-        for book in books:
-            book = book.decode('utf-8')
-            if not os.path.exists(book):
+    if not os.path.exists(dest):
+        os.makedirs(dest)
+
+    # init processing bar
+    bar_len = int(int(os.popen('stty size', 'r').read().split()[1])*.75)
+    step_len = 0
+    print('Start transferring...')
+    sys.stdout.write("[%s]" % (" " * (bar_len+1)))
+    sys.stdout.flush()
+    sys.stdout.write('%s%s' % ("\b" * (bar_len+2),'>'))
+    sys.stdout.flush()
+
+    for book in books:
+        book = book.decode('utf-8')
+        ext = os.path.splitext(book)[-1].upper()
+        book_dest_folder = os.path.join(dest, os.path.basename(book))
+
+        if not os.path.exists(book) or ('.PDF' != ext and '.EPUB' != ext):
+            fail_list.append(book)
+            continue
+
+        if '.PDF' == ext:
+            if ibooks.check_book(book):
                 fail_list.append(book)
-            else:
-                ext = os.path.splitext(book)[1].upper()
-                if '.PDF' == ext:
-                    if optimized:
-                        array.append( optimizedEntry(book) )
-                    else:
-                        array.append(Book(book))
+                continue
 
-                    book_path = os.path.join(dest, os.path.basename(book))
-                    if os.path.exists(book_path):
-                        fail_list.append(book)
-                        continue
+            if os.path.exists(book_dest_folder) and hash_md5(book_dest_folder) != hash_md5(book):
+                shutil.copyfile(book, book_dest_folder)
+        elif '.EPUB' == ext:
+            if ibooks.check_book(book):
+                fail_list.append(book)
+                continue
 
-                    shutil.copyfile(book, book_path)
-                elif '.EPUB' == ext:
-                    folder = os.path.join(dest, os.path.basename(book))
-                    if os.path.exists(folder):
-                        fail_list.append(book)
-                        continue
+            os.mkdir(book_dest_folder)
+            with zipfile.ZipFile(book, "r") as z:
+                z.extractall(book_dest_folder)
 
-                    os.mkdir(folder)
-                    if optimized:
-                        array.append( optimizedEntry(book) )
-                    else:
-                        array.append(Book(book))
-                    with zipfile.ZipFile(book, "r") as z:
-                        z.extractall(folder)
-                else:
-                    fail_list.append(book)
-            step_len += bar_len
-            if step_len >= book_num:
-                sys.stdout.write("\b%s>" % '='*int(float(step_len)/book_num))
-                sys.stdout.flush()
-                step_len = step_len%book_num
-        if optimized:
-            biplist.writePlist( tree, plist )
-        else:
-            array[-1].tail = '\n\t'
-            tree.write(plist,'utf-8', True)
-        sys.stdout.write('\n')
-        print('Finished: %s books transfered' % str(len(books)-len(fail_list)))
-        if len(fail_list):
-            print('The following books are not transfered:')
-            for book in fail_list:
-                print(book)
+        book_info = get_book_info(book)
+
+        book_obj = Book(book)
+        book_obj.add_attrib('Genre', book_info['genre'])
+        if book_info['title']:
+            book_obj.add_attrib('Name', book_info['title'])
+        book_obj.add_attrib('Artist', book_info['author'])
+
+        ibooks.add_book(book_obj)
+
+        step_len += bar_len
+        if step_len >= book_num:
+            sys.stdout.write("\b%s>" % '='*int(float(step_len)/book_num))
+            sys.stdout.flush()
+            step_len = step_len%book_num
+
+    ibooks.save(True)
+
+    sys.stdout.write('\n')
+    print('Finished: %s books transfered' % str(len(books)-len(fail_list)))
+    if len(fail_list):
+        print('The following books are not transfered:')
+        for book in fail_list:
+            print(book)
+
 
 def walkdir(dirname):
     books = []
@@ -177,6 +242,26 @@ def walkdir(dirname):
             books.append(real_path)
 
     return books
+
+
+def check_pad(path):
+    ibooks_path = os.path.join(path, 'Books')
+    ibooks_purchases_path = os.path.join(ibooks_path, 'Purchases')
+    check_path = ''
+    is_pad = True
+    if not os.path.exists(ibooks_path):
+        is_pad = False
+        check_path = ibooks_path
+    elif not os.path.exists(ibooks_purchases_path):
+        is_pad = False
+        check_path = ibooks_purchases_path
+
+    if is_pad:
+        return
+
+    print('Seems you give wrong ipad mount point, please check!')
+    print("Path not exists: %s" % check_path)
+    sys.exit(-1)
 
 if __name__ == '__main__':
     try:
@@ -195,6 +280,8 @@ if __name__ == '__main__':
             ipad_path = os.getcwd()
         else:
             ipad_path = os.path.abspath(args.IPAD_MOUNTED_POINT)
+
+        check_pad(ipad_path)
 
         for book_path in book_list:
             if os.path.isdir(book_path):
