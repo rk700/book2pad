@@ -13,6 +13,11 @@ import time
 from biplist import *
 from binaryornot.check import is_binary
 
+ipad_root = ''
+ibooks_plist = 'Books/Purchases/Purchases.plist'
+books_transfered_num = 0
+books_failed_list = []
+books_adding = ''
 
 class IBooks():
     def __init__(self, plist):
@@ -55,8 +60,10 @@ class IBooks():
                     shutil.rmtree(book)
 
     def save(self, force = False):
+        global books_transfered_num
         try:
             writePlist(self.tree, self.plist, binary=self.is_binary)
+            books_transfered_num += 1
         except IOError:
             if force:
                 print("\nIf you seen this message, please open your ibooks. Don't disconnect your ipad!")
@@ -160,15 +167,16 @@ def get_book_info(book):
 
 
 def addbooks(root_dir, books):
+    global books_failed_list
+    global books_adding
     book_num = len(books)
     if book_num == 0:
         print 'No pdf or epub file found!'
         return
 
     # init vars
-    plist = os.path.join(root_dir, 'Books/Purchases/Purchases.plist')
+    plist = os.path.join(root_dir, ibooks_plist)
     dest = os.path.dirname(plist)
-    fail_list = []
     ibooks = IBooks(plist)
 
     if not os.path.exists(dest):
@@ -188,23 +196,29 @@ def addbooks(root_dir, books):
         ext = os.path.splitext(book)[-1].upper()
         book_dest_folder = os.path.join(dest, os.path.basename(book))
 
-        if not os.path.exists(book) or ('.PDF' != ext and '.EPUB' != ext):
-            fail_list.append(book)
+        if not os.path.exists(book) or (ext not in ['.PDF', '.EPUB']):
+            print("wrong ext: %s=%s" % (book, ext))
+            books_failed_list.append(book)
             continue
 
         if '.PDF' == ext:
             if ibooks.check_book(book):
-                fail_list.append(book)
+                print ibooks.check_book(book)
+                print("check: %s" % book)
+                books_failed_list.append(book)
                 continue
 
-            if os.path.exists(book_dest_folder) and hash_md5(book_dest_folder) != hash_md5(book):
+            if (not os.path.exists(book_dest_folder)) or hash_md5(book_dest_folder) != hash_md5(book):
+                books_adding = book_dest_folder
                 shutil.copyfile(book, book_dest_folder)
         elif '.EPUB' == ext:
             if ibooks.check_book(book):
-                fail_list.append(book)
+                print("check: %s" % book)
+                books_failed_list.append(book)
                 continue
 
             os.mkdir(book_dest_folder)
+            books_adding = book_dest_folder
             with zipfile.ZipFile(book, "r") as z:
                 z.extractall(book_dest_folder)
 
@@ -217,6 +231,7 @@ def addbooks(root_dir, books):
         book_obj.add_attrib('Artist', book_info['author'])
 
         ibooks.add_book(book_obj)
+        books_adding = ''
 
         step_len += bar_len
         if step_len >= book_num:
@@ -225,12 +240,15 @@ def addbooks(root_dir, books):
             step_len = step_len%book_num
 
     ibooks.save(True)
+    transfer_info()
 
+
+def transfer_info(prefix = 'Finished'):
     sys.stdout.write('\n')
-    print('Finished: %s books transfered' % str(len(books)-len(fail_list)))
-    if len(fail_list):
+    print('%s: %s books transfered' % (prefix, str(books_transfered_num)))
+    if len(books_failed_list):
         print('The following books are not transfered:')
-        for book in fail_list:
+        for book in books_failed_list:
             print(book)
 
 
@@ -264,24 +282,24 @@ def check_pad(path):
     sys.exit(-1)
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Transfer books to ipad')
+    parser.add_argument('-d', '--ipad', action='store', dest='IPAD_MOUNTED_POINT',
+                        help='Indicate path ipad is mounted; if omitted, the current working directory will be treated.')
+    parser.add_argument('-b', '--book', type=str, required=True, action='append', dest='BOOK', nargs='+',
+                        help='Indicate book path to transfer; if path is a directory, all books under that will be transfered.')
+    parser.add_argument('--version', action='version', version='%(prog)s 1.0')
+
+    args = parser.parse_args()
+    book_list = args.BOOK[0]
+
+    if args.IPAD_MOUNTED_POINT is None:
+        ipad_root = os.getcwd()
+    else:
+        ipad_root = os.path.abspath(args.IPAD_MOUNTED_POINT)
+
     try:
-        parser = argparse.ArgumentParser(description='Transfer books to ipad')
-        parser.add_argument('-d', '--ipad', action='store', dest='IPAD_MOUNTED_POINT',
-                            help='Indicate path ipad is mounted; if omitted, the current working directory will be treated.')
-        parser.add_argument('-b', '--book', type=str, required=True, action='append', dest='BOOK', nargs='+',
-                            help='Indicate book path to transfer; if path is a directory, all books under that will be transfered.')
-        parser.add_argument('--version', action='version', version='%(prog)s 1.0')
-
-        args = parser.parse_args()
-        book_list = args.BOOK[0]
         books = []
-
-        if args.IPAD_MOUNTED_POINT is None:
-            ipad_path = os.getcwd()
-        else:
-            ipad_path = os.path.abspath(args.IPAD_MOUNTED_POINT)
-
-        check_pad(ipad_path)
+        check_pad(ipad_root)
 
         for book_path in book_list:
             if os.path.isdir(book_path):
@@ -290,7 +308,19 @@ if __name__ == '__main__':
                 books.append(book_path)
 
         if len(books) > 0:
-            addbooks(os.path.abspath(ipad_path), books)
+            addbooks(os.path.abspath(ipad_root), books)
+    except KeyboardInterrupt:
+        plist = os.path.join(ipad_root, ibooks_plist)
+        ibooks = IBooks(plist)
+        ibooks.clear()
+
+        if len(books_adding) > 0:
+            if os.path.isfile(books_adding):
+                os.remove(books_adding)
+            elif os.path.isdir(books_adding):
+                shutil.rmtree(books_adding)
+
+        transfer_info('Interrupted')
 
     except Exception,e:
         traceback.print_exc()
