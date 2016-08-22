@@ -28,15 +28,13 @@ If the iPad's contents don't show up immediately after plugging in, mount your i
 
     ifuse /media
 
-Then you can begin transferring like this
+Then you can begin transferring like this, directory name will be as genre
 
     book2pad -d /media -b ~/doc/
 
-    or
-
     book2pad -d /media -b ~/doc/file.pdf
 
-    or book2pad -d /media -b ~/doc/file.pdf ~/doc/others
+    book2pad -d /media -b ~/doc/file.pdf ~/doc/others
 
 
 ``-d mountpoint`` indicates where the ipad is mounted. If omitted, the current working directory will be treated as the mountpoint.
