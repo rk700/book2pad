@@ -197,14 +197,11 @@ def addbooks(root_dir, books):
         book_dest_folder = os.path.join(dest, os.path.basename(book))
 
         if not os.path.exists(book) or (ext not in ['.PDF', '.EPUB']):
-            print("wrong ext: %s=%s" % (book, ext))
             books_failed_list.append(book)
             continue
 
         if '.PDF' == ext:
             if ibooks.check_book(book):
-                print ibooks.check_book(book)
-                print("check: %s" % book)
                 books_failed_list.append(book)
                 continue
 
@@ -213,7 +210,6 @@ def addbooks(root_dir, books):
                 shutil.copyfile(book, book_dest_folder)
         elif '.EPUB' == ext:
             if ibooks.check_book(book):
-                print("check: %s" % book)
                 books_failed_list.append(book)
                 continue
 
