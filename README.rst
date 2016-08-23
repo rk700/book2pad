@@ -7,18 +7,39 @@ Requirements
 ------------
 
 * install `ifuse <http://www.libimobiledevice.org>`_ on your computer
-* biplist should be installed in case your plist file is compressed. (Just run "sudo easy_install biplist" and type your password.)
+* install python libraries:
+    hashlib
+    shutil
+    argparse
+    traceback
+    pyexifinfo
+    zipfile
+    biplist
+    binaryornot
+
+  simply run this:
+
+    pip install hashlib shutil argparse traceback pyexifinfo zipfile biplist binaryornot
 
 Usage
 -----
+
+First, I want to recommend this library structure: [your_library]: https://github.com/qunxyz/book2pad/tree/master/your_library. 
+
+This script would tried to read title and author from book's metadata, otherwise would tried to parse filename.
 
 If the iPad's contents don't show up immediately after plugging in, mount your ipad somewhere using ifuse, say /media
 
     ifuse /media
 
-Then you can begin transferring like this
+Then you can begin transferring like this, directory name will be as genre
 
-    book2pad -d /media ~/doc/\*.pdf
+    book2pad -d /media -b ~/doc/
+
+    book2pad -d /media -b ~/doc/file.pdf
+
+    book2pad -d /media -b ~/doc/file.pdf ~/doc/others
+
 
 ``-d mountpoint`` indicates where the ipad is mounted. If omitted, the current working directory will be treated as the mountpoint.
 
