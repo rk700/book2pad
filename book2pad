@@ -15,9 +15,11 @@ from binaryornot.check import is_binary
 
 ipad_root = ''
 ibooks_plist = 'Books/Purchases/Purchases.plist'
+book_num = 0
 books_transfered_num = 0
 books_failed_list = []
-books_adding = ''
+books_adding = []
+is_verbose = False
 
 class IBooks():
     def __init__(self, plist):
@@ -27,6 +29,7 @@ class IBooks():
 
     def init_tree(self):
         self.is_binary = False
+        self.search_tree = {}
         self.tree = {
             'Books': []
         }
@@ -37,36 +40,75 @@ class IBooks():
             except:
                 print "Unexpected error:", sys.exc_info()[0]
 
+        if len(self.tree['Books']) > 0:
+            for item in self.tree['Books']:
+                self.search_tree[item['Package Hash']] = item
+
     def add_book(self, book):
-        self.tree['Books'].append(book.tree)
+        self.search_tree[book.get_attrib('Package Hash')] = book.tree
         self.save()
 
-    def check_book(self, book):
-        in_flag = False
-        for item in self.tree['Books']:
-            if item['Package Hash'] == hash_md5(book):
-                in_flag = True
-                continue
+    def remove_book(self, book, delete_file = False):
+        dest = os.path.dirname(self.ibooks_path)
+        if book['Package Hash'] in self.search_tree:
+            del self.search_tree[book['Package Hash']]
+            if delete_file:
+                book_path = os.path.join(dest, os.path.basename(book['Path']))
+                if os.path.isfile(book_path):
+                    os.remove(book_path)
+                elif os.path.isdir(book_path):
+                    shutil.rmtree(book_path)
 
-        return in_flag
+
+    def is_same(self, book_a, book_b):
+        if book_a['Genre'] == book_b['Genre'] and book_a['Name'] == book_b['Name'] and book_a['Artist'] == book_b['Artist'] and book_a['Package Hash'] == book_b['Package Hash']:
+            return True
+
+        return False
+
+
+    def check_book(self, book):
+        if book['hash'] in self.search_tree:
+            item = self.search_tree[book['hash']]
+            if item['Genre'] == book['genre'] and item['Name'] == book['title'] and item['Artist'] == book['author'] and item['Package Hash'] == book['hash']:
+                return True
+
+        return False
+
+    def get_book(self, book_hash):
+        if book_hash not in self.search_tree:
+            return None
+
+        return self.search_tree[book_hash]
+
 
     def clear(self):
         books = walkdir(self.ibooks_path)
         for book in books:
-            if not self.check_book(book):
+            if not self.check_book(get_book_info(book)):
                 if os.path.isfile(book):
                     os.remove(book)
                 elif os.path.isdir(book):
                     shutil.rmtree(book)
 
+    def build_tree(self):
+        tree = []
+        for key in self.search_tree:
+            tree.append(self.search_tree[key])
+
+        self.tree['Books'] = tree
+
     def save(self, force = False):
         global books_transfered_num
+        global books_adding
         try:
+            self.build_tree()
             writePlist(self.tree, self.plist, binary=self.is_binary)
             books_transfered_num += 1
+            books_adding = []
         except IOError:
             if force:
-                print("\nIf you seen this message, please open your ibooks. Don't disconnect your ipad!")
+                print("\nIf you seen this message, please reopen your ibooks. Don't disconnect your ipad!\nIf this message keep alertting, please check if some books damaged(no cover)")
                 time.sleep(10)
                 self.save(force)
 
@@ -81,7 +123,6 @@ class Book():
         self.tree = {}
         self.add_attrib('Name', os.path.splitext(os.path.basename(book))[0])
         self.add_attrib('Inserted-By-iBooks', False)
-        self.add_attrib('Package Hash', hash_md5(book))
         self.add_attrib('Path', os.path.basename(book))
 
     def add_attrib(self, key, value):
@@ -135,7 +176,8 @@ def get_book_info(book):
     result = {
         'title': '',
         'genre': '',
-        'author': ''
+        'author': '',
+        'hash': hash_md5(book)
     }
 
     folder_path = os.path.dirname(book)
@@ -166,9 +208,18 @@ def get_book_info(book):
     return result
 
 
+def report_progress(book, flag):
+    if not is_verbose:
+        return
+    bar_len = int(int(os.popen('stty size', 'r').read().split()[1])*.65)
+    sys.stdout.write("Transferring: %-*s[%s]\n" % (bar_len, book, flag))
+    sys.stdout.flush()
+
+
 def addbooks(root_dir, books):
     global books_failed_list
     global books_adding
+    global book_num
     book_num = len(books)
     if book_num == 0:
         print 'No pdf or epub file found!'
@@ -181,59 +232,86 @@ def addbooks(root_dir, books):
 
     if not os.path.exists(dest):
         os.makedirs(dest)
-
-    # init processing bar
-    bar_len = int(int(os.popen('stty size', 'r').read().split()[1])*.75)
     step_len = 0
+    bar_len = int(int(os.popen('stty size', 'r').read().split()[1])*.75)
+
     print('Start transferring...')
-    sys.stdout.write("[%s]" % (" " * (bar_len+1)))
-    sys.stdout.flush()
-    sys.stdout.write('%s%s' % ("\b" * (bar_len+2),'>'))
-    sys.stdout.flush()
+    # init processing bar
+    if not is_verbose:
+        bar_len = int(int(os.popen('stty size', 'r').read().split()[1])*.75)
+        step_len = 0
+        sys.stdout.write("[%s]" % (" " * (bar_len+1)))
+        sys.stdout.flush()
+        sys.stdout.write('%s%s' % ("\b" * (bar_len+2),'>'))
+        sys.stdout.flush()
 
     for book in books:
+        step_len += bar_len
+
         book = book.decode('utf-8')
         ext = os.path.splitext(book)[-1].upper()
         book_dest_folder = os.path.join(dest, os.path.basename(book))
 
         if not os.path.exists(book) or (ext not in ['.PDF', '.EPUB']):
+            report_progress(book, 'pass by extension')
             books_failed_list.append(book)
             continue
 
-        if '.PDF' == ext:
-            if ibooks.check_book(book):
-                books_failed_list.append(book)
-                continue
-
-            if (not os.path.exists(book_dest_folder)) or hash_md5(book_dest_folder) != hash_md5(book):
-                books_adding = book_dest_folder
-                shutil.copyfile(book, book_dest_folder)
-        elif '.EPUB' == ext:
-            if ibooks.check_book(book):
-                books_failed_list.append(book)
-                continue
-
-            os.mkdir(book_dest_folder)
-            books_adding = book_dest_folder
-            with zipfile.ZipFile(book, "r") as z:
-                z.extractall(book_dest_folder)
-
         book_info = get_book_info(book)
+        old_book = ibooks.get_book(book_info['hash'])
+        old_book_delete = False
+
+        if old_book and old_book['Genre'] == book_info['genre'] and old_book['Name'] == book_info['title'] and old_book['Artist'] == book_info['author'] and old_book['Package Hash'] == book_info['hash']:
+            report_progress(book, 'pass since book exists')
+            books_failed_list.append(book)
+            continue
+
+        books_adding.append(book_dest_folder)
+        if '.PDF' == ext:
+            if old_book and old_book['Package Hash'] == book_info['hash']:
+                report_progress(book, 'update since book changed')
+                if old_book['Path'] != os.path.basename(book):
+                    shutil.move(os.path.join(dest, os.path.basename(old_book['Path'])), book_dest_folder)
+            else:
+                report_progress(book, 'new')
+                shutil.copyfile(book, book_dest_folder)
+                if old_book:
+                    old_book_delete = True
+
+        elif '.EPUB' == ext:
+            if old_book and old_book['Package Hash'] == book_info['hash']:
+                report_progress(book, 'update since book changed')
+                if old_book['Path'] != os.path.basename(book):
+                    shutil.move(os.path.join(dest, os.path.basename(old_book['Path'])), book_dest_folder)
+            else:
+                report_progress(book, 'new')
+                if not os.path.exists(book_dest_folder):
+                    os.mkdir(book_dest_folder)
+
+                with zipfile.ZipFile(book, "r") as z:
+                    z.extractall(book_dest_folder)
+
+                if old_book:
+                    old_book_delete = True
 
         book_obj = Book(book)
+        book_obj.add_attrib('Package Hash', book_info['hash'])
         book_obj.add_attrib('Genre', book_info['genre'])
         if book_info['title']:
             book_obj.add_attrib('Name', book_info['title'])
         book_obj.add_attrib('Artist', book_info['author'])
 
-        ibooks.add_book(book_obj)
-        books_adding = ''
+        if old_book:
+            ibooks.remove_book(old_book, old_book_delete)
 
-        step_len += bar_len
-        if step_len >= book_num:
-            sys.stdout.write("\b%s>" % '='*int(float(step_len)/book_num))
-            sys.stdout.flush()
-            step_len = step_len%book_num
+        ibooks.add_book(book_obj)
+
+        if not is_verbose:
+            step_len += bar_len
+            if step_len >= book_num:
+                sys.stdout.write("\b%s>" % '='*int(float(step_len)/book_num))
+                sys.stdout.flush()
+                step_len = step_len%book_num
 
     ibooks.save(True)
     transfer_info()
@@ -242,10 +320,12 @@ def addbooks(root_dir, books):
 def transfer_info(prefix = 'Finished'):
     sys.stdout.write('\n')
     print('%s: %s books transfered' % (prefix, str(books_transfered_num)))
-    if len(books_failed_list):
+    if is_verbose and len(books_failed_list):
         print('The following books are not transfered:')
         for book in books_failed_list:
             print(book)
+    elif len(books_failed_list):
+        print('%s books are not transfered' % str(len(books_failed_list)))
 
 
 def walkdir(dirname):
@@ -283,10 +363,13 @@ if __name__ == '__main__':
                         help='Indicate path ipad is mounted; if omitted, the current working directory will be treated.')
     parser.add_argument('-b', '--book', type=str, required=True, action='append', dest='BOOK', nargs='+',
                         help='Indicate book path to transfer; if path is a directory, all books under that will be transfered.')
+    parser.add_argument('-v', '--verbose', action='store_true', dest='VERBOSE',
+                        help='increase output verbosity.')
     parser.add_argument('--version', action='version', version='%(prog)s 1.0')
 
     args = parser.parse_args()
     book_list = args.BOOK[0]
+    is_verbose = args.VERBOSE
 
     if args.IPAD_MOUNTED_POINT is None:
         ipad_root = os.getcwd()
@@ -311,10 +394,11 @@ if __name__ == '__main__':
         ibooks.clear()
 
         if len(books_adding) > 0:
-            if os.path.isfile(books_adding):
-                os.remove(books_adding)
-            elif os.path.isdir(books_adding):
-                shutil.rmtree(books_adding)
+            for book in books_adding:
+                if os.path.isfile(book):
+                    os.remove(book)
+                elif os.path.isdir(book):
+                    shutil.rmtree(book)
 
         transfer_info('Interrupted')
 
