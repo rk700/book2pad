@@ -289,7 +289,12 @@ def addbooks(root_dir, books):
                     os.mkdir(book_dest_folder)
 
                 with zipfile.ZipFile(book, "r") as z:
-                    z.extractall(book_dest_folder)
+                    try:
+                        z.extractall(book_dest_folder)
+                    except:
+                        print("Unexpected error:", sys.exc_info()[0])
+                        books_failed_list.append(book)
+                        continue
 
                 if old_book:
                     old_book_delete = True
