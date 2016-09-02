@@ -122,7 +122,8 @@ class IBooks():
             writePlist(self.tree, self.plist, binary=self.is_binary)
         except IOError:
             print("\nIf you seen this message, please reopen your ibooks. Don't disconnect your ipad!\n"
-                  "If this message keep alerting, please check if some books damaged(no cover), then remove it")
+                  "If this message keep alerting, please check if any book damaged(no cover), then remove it.\n"
+                  "Or just remove one book from ibooks.")
             time.sleep(20)
             self.save()
 
