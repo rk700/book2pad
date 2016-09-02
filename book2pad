@@ -15,6 +15,7 @@ from binaryornot.check import is_binary
 
 ipad_root = ''
 ibooks_plist = 'Books/Purchases/Purchases.plist'
+IBooksInstance = None
 book_num = 0
 books_transfered_num = 0
 books_failed_list = []
@@ -35,18 +36,24 @@ class IBooks():
         }
         if os.path.exists(self.plist):
             self.is_binary = is_binary(self.plist)
+
             try:
                 self.tree = readPlist(self.plist)
+            except InvalidPlistException:
+                print "Invalid plist, re-init plist file!"
             except:
                 print "Unexpected error:", sys.exc_info()[0]
+                print "You should tried again!"
+                raise
+                sys.exit()
 
         if len(self.tree['Books']) > 0:
             for item in self.tree['Books']:
                 self.search_tree[item['Package Hash']] = item
 
     def add_book(self, book):
+        global books_adding
         self.search_tree[book.get_attrib('Package Hash')] = book.tree
-        self.save()
 
     def remove_book(self, book, delete_file = False):
         dest = os.path.dirname(self.ibooks_path)
@@ -61,7 +68,8 @@ class IBooks():
 
 
     def is_same(self, book_a, book_b):
-        if book_a['Genre'] == book_b['Genre'] and book_a['Name'] == book_b['Name'] and book_a['Artist'] == book_b['Artist'] and book_a['Package Hash'] == book_b['Package Hash']:
+        if book_a['Genre'] == book_b['Genre'] and book_a['Name'] == book_b['Name'] and \
+                        book_a['Artist'] == book_b['Artist'] and book_a['Package Hash'] == book_b['Package Hash']:
             return True
 
         return False
@@ -70,7 +78,8 @@ class IBooks():
     def check_book(self, book):
         if book['hash'] in self.search_tree:
             item = self.search_tree[book['hash']]
-            if item['Genre'] == book['genre'] and item['Name'] == book['title'] and item['Artist'] == book['author'] and item['Package Hash'] == book['hash']:
+            if item['Genre'] == book['genre'] and item['Name'] == book['title'] and \
+                            item['Artist'] == book['author'] and item['Package Hash'] == book['hash']:
                 return True
 
         return False
@@ -83,6 +92,13 @@ class IBooks():
 
 
     def clear(self):
+        if len(books_adding) > 0:
+            for item in books_adding:
+                if os.path.isfile(item):
+                    os.remove(item)
+                elif os.path.isdir(item):
+                    shutil.rmtree(item)
+
         books = walkdir(self.ibooks_path)
         for book in books:
             if not self.check_book(get_book_info(book)):
@@ -98,19 +114,18 @@ class IBooks():
 
         self.tree['Books'] = tree
 
-    def save(self, force = False):
+    def save(self):
         global books_transfered_num
         global books_adding
         try:
             self.build_tree()
             writePlist(self.tree, self.plist, binary=self.is_binary)
-            books_transfered_num += 1
-            books_adding = []
         except IOError:
-            if force:
-                print("\nIf you seen this message, please reopen your ibooks. Don't disconnect your ipad!\nIf this message keep alertting, please check if some books damaged(no cover)")
-                time.sleep(10)
-                self.save(force)
+            print("\nIf you seen this message, please reopen your ibooks. Don't disconnect your ipad!\n"
+                  "If this message keep alerting, please check if any book damaged(no cover), then remove it.\n"
+                  "Or just remove one book from ibooks.")
+            time.sleep(20)
+            self.save()
 
         except:
             self.clear()
@@ -196,7 +211,7 @@ def get_book_info(book):
         author = file_info['author']
 
     search_obj = re.search(r'[A-Za-z0-9]+', author, re.M|re.I)
-    if search_obj and len(search_obj.group(0)) > 10:
+    if search_obj and len(search_obj.group(0)) > 10:# try to avoid unreadable author name
         file_info = get_file_info(book)
 
         title = file_info['title']
@@ -220,6 +235,8 @@ def addbooks(root_dir, books):
     global books_failed_list
     global books_adding
     global book_num
+    global IBooksInstance
+    global books_transfered_num
     book_num = len(books)
     if book_num == 0:
         print 'No pdf or epub file found!'
@@ -228,7 +245,7 @@ def addbooks(root_dir, books):
     # init vars
     plist = os.path.join(root_dir, ibooks_plist)
     dest = os.path.dirname(plist)
-    ibooks = IBooks(plist)
+    IBooksInstance = IBooks(plist)
 
     if not os.path.exists(dest):
         os.makedirs(dest)
@@ -258,10 +275,11 @@ def addbooks(root_dir, books):
             continue
 
         book_info = get_book_info(book)
-        old_book = ibooks.get_book(book_info['hash'])
+        old_book = IBooksInstance.get_book(book_info['hash'])
         old_book_delete = False
 
-        if old_book and old_book['Genre'] == book_info['genre'] and old_book['Name'] == book_info['title'] and old_book['Artist'] == book_info['author'] and old_book['Package Hash'] == book_info['hash']:
+        if old_book and old_book['Genre'] == book_info['genre'] and old_book['Name'] == book_info['title'] and \
+                        old_book['Artist'] == book_info['author'] and old_book['Package Hash'] == book_info['hash']:
             report_progress(book, 'pass since book exists')
             books_failed_list.append(book)
             continue
@@ -289,7 +307,19 @@ def addbooks(root_dir, books):
                     os.mkdir(book_dest_folder)
 
                 with zipfile.ZipFile(book, "r") as z:
-                    z.extractall(book_dest_folder)
+                    try:
+                        z.extractall(book_dest_folder)
+
+                    except KeyboardInterrupt:
+
+                        IBooksInstance.save()
+                        IBooksInstance.clear()
+                        transfer_info('Interrupted')
+                        sys.exit(0)
+                    except:
+                        print("Unexpected error while unzip %s:"%(book, sys.exc_info()[0]))
+                        books_failed_list.append(book)
+                        continue
 
                 if old_book:
                     old_book_delete = True
@@ -302,9 +332,11 @@ def addbooks(root_dir, books):
         book_obj.add_attrib('Artist', book_info['author'])
 
         if old_book:
-            ibooks.remove_book(old_book, old_book_delete)
+            IBooksInstance.remove_book(old_book, old_book_delete)
 
-        ibooks.add_book(book_obj)
+        IBooksInstance.add_book(book_obj)
+        books_adding.remove(book_dest_folder)
+        books_transfered_num += 1
 
         if not is_verbose:
             step_len += bar_len
@@ -313,7 +345,7 @@ def addbooks(root_dir, books):
                 sys.stdout.flush()
                 step_len = step_len%book_num
 
-    ibooks.save(True)
+    IBooksInstance.save()
     transfer_info()
 
 
@@ -360,9 +392,11 @@ def check_pad(path):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Transfer books to ipad')
     parser.add_argument('-d', '--ipad', action='store', dest='IPAD_MOUNTED_POINT',
-                        help='Indicate path ipad is mounted; if omitted, the current working directory will be treated.')
+                        help='Indicate path ipad is mounted; if omitted, '
+                             'the current working directory will be treated.')
     parser.add_argument('-b', '--book', type=str, required=True, action='append', dest='BOOK', nargs='+',
-                        help='Indicate book path to transfer; if path is a directory, all books under that will be transfered.')
+                        help='Indicate book path to transfer; if path is a directory, '
+                             'all books under that will be transfered.')
     parser.add_argument('-v', '--verbose', action='store_true', dest='VERBOSE',
                         help='increase output verbosity.')
     parser.add_argument('--version', action='version', version='%(prog)s 1.0')
@@ -388,19 +422,7 @@ if __name__ == '__main__':
 
         if len(books) > 0:
             addbooks(os.path.abspath(ipad_root), books)
-    except KeyboardInterrupt:
-        plist = os.path.join(ipad_root, ibooks_plist)
-        ibooks = IBooks(plist)
-        ibooks.clear()
-
-        if len(books_adding) > 0:
-            for book in books_adding:
-                if os.path.isfile(book):
-                    os.remove(book)
-                elif os.path.isdir(book):
-                    shutil.rmtree(book)
-
-        transfer_info('Interrupted')
-
     except Exception,e:
+        IBooksInstance.save()
+        IBooksInstance.clear()
         traceback.print_exc()
