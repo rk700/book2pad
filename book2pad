@@ -25,7 +25,6 @@ is_verbose = False
 class IBooks():
     def __init__(self, plist):
         self.plist = plist
-        self.plist_handler = None
         self.ibooks_path = os.path.basename(self.plist)
         self.init_tree()
 
@@ -55,7 +54,6 @@ class IBooks():
     def add_book(self, book):
         global books_adding
         self.search_tree[book.get_attrib('Package Hash')] = book.tree
-        # self.save()
 
     def remove_book(self, book, delete_file = False):
         dest = os.path.dirname(self.ibooks_path)
@@ -70,7 +68,8 @@ class IBooks():
 
 
     def is_same(self, book_a, book_b):
-        if book_a['Genre'] == book_b['Genre'] and book_a['Name'] == book_b['Name'] and book_a['Artist'] == book_b['Artist'] and book_a['Package Hash'] == book_b['Package Hash']:
+        if book_a['Genre'] == book_b['Genre'] and book_a['Name'] == book_b['Name'] and \
+                        book_a['Artist'] == book_b['Artist'] and book_a['Package Hash'] == book_b['Package Hash']:
             return True
 
         return False
@@ -79,7 +78,8 @@ class IBooks():
     def check_book(self, book):
         if book['hash'] in self.search_tree:
             item = self.search_tree[book['hash']]
-            if item['Genre'] == book['genre'] and item['Name'] == book['title'] and item['Artist'] == book['author'] and item['Package Hash'] == book['hash']:
+            if item['Genre'] == book['genre'] and item['Name'] == book['title'] and \
+                            item['Artist'] == book['author'] and item['Package Hash'] == book['hash']:
                 return True
 
         return False
@@ -210,7 +210,7 @@ def get_book_info(book):
         author = file_info['author']
 
     search_obj = re.search(r'[A-Za-z0-9]+', author, re.M|re.I)
-    if search_obj and len(search_obj.group(0)) > 10:
+    if search_obj and len(search_obj.group(0)) > 10:# try to avoid unreadable author name
         file_info = get_file_info(book)
 
         title = file_info['title']
@@ -277,7 +277,8 @@ def addbooks(root_dir, books):
         old_book = IBooksInstance.get_book(book_info['hash'])
         old_book_delete = False
 
-        if old_book and old_book['Genre'] == book_info['genre'] and old_book['Name'] == book_info['title'] and old_book['Artist'] == book_info['author'] and old_book['Package Hash'] == book_info['hash']:
+        if old_book and old_book['Genre'] == book_info['genre'] and old_book['Name'] == book_info['title'] and \
+                        old_book['Artist'] == book_info['author'] and old_book['Package Hash'] == book_info['hash']:
             report_progress(book, 'pass since book exists')
             books_failed_list.append(book)
             continue
@@ -390,9 +391,11 @@ def check_pad(path):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Transfer books to ipad')
     parser.add_argument('-d', '--ipad', action='store', dest='IPAD_MOUNTED_POINT',
-                        help='Indicate path ipad is mounted; if omitted, the current working directory will be treated.')
+                        help='Indicate path ipad is mounted; if omitted, '
+                             'the current working directory will be treated.')
     parser.add_argument('-b', '--book', type=str, required=True, action='append', dest='BOOK', nargs='+',
-                        help='Indicate book path to transfer; if path is a directory, all books under that will be transfered.')
+                        help='Indicate book path to transfer; if path is a directory, '
+                             'all books under that will be transfered.')
     parser.add_argument('-v', '--verbose', action='store_true', dest='VERBOSE',
                         help='increase output verbosity.')
     parser.add_argument('--version', action='version', version='%(prog)s 1.0')
