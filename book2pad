@@ -76,11 +76,11 @@ class IBooks():
 
         return False
 
-    def get_book(self, book_hash):
-        if book_hash not in self.search_tree:
+    def get_book(self, book_filename):
+        if book_filename not in self.search_tree:
             return None
 
-        return self.search_tree[book_hash]
+        return self.search_tree[book_filename]
 
 
     def clear(self):
@@ -277,24 +277,35 @@ def addbooks(root_dir, books):
             continue
 
         books_adding.append(book_dest_folder)
+        need_transfer = False
         if '.PDF' == ext:
-            if old_book and old_book['Package Hash'] == book_info['hash']:
+            if old_book:
                 report_progress(book, 'update since book changed')
-                if old_book['Path'] != os.path.basename(book):
+                if old_book['Package Hash'] == book_info['hash'] and old_book['Path'] != os.path.basename(book):
                     shutil.move(os.path.join(dest, os.path.basename(old_book['Path'])), book_dest_folder)
+                else:
+                    need_transfer = True
             else:
                 report_progress(book, 'new')
+                need_transfer = True
+
+            if need_transfer:
                 shutil.copyfile(book, book_dest_folder)
                 if old_book:
                     old_book_delete = True
 
         elif '.EPUB' == ext:
-            if old_book and old_book['Package Hash'] == book_info['hash']:
+            if old_book:
                 report_progress(book, 'update since book changed')
-                if old_book['Path'] != os.path.basename(book):
+                if old_book['Package Hash'] == book_info['hash'] and old_book['Path'] != os.path.basename(book):
                     shutil.move(os.path.join(dest, os.path.basename(old_book['Path'])), book_dest_folder)
+                else:
+                    need_transfer = True
             else:
                 report_progress(book, 'new')
+                need_transfer = True
+
+            if need_transfer:
                 if not os.path.exists(book_dest_folder):
                     os.mkdir(book_dest_folder)
 
