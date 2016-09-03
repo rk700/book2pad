@@ -13,15 +13,6 @@ import time
 from biplist import *
 from binaryornot.check import is_binary
 
-ipad_root = ''
-ibooks_plist = 'Books/Purchases/Purchases.plist'
-IBooksInstance = None
-book_num = 0
-books_transfered_num = 0
-books_failed_list = []
-books_adding = []
-is_verbose = False
-
 class IBooks():
     def __init__(self, plist):
         self.plist = plist
@@ -34,13 +25,14 @@ class IBooks():
         self.tree = {
             'Books': []
         }
-        if os.path.exists(self.plist):
-            self.is_binary = is_binary(self.plist)
-
+        if os.path.exists(self.plist) and os.path.isfile(self.plist):
             try:
+                self.is_binary = is_binary(self.plist)
                 self.tree = readPlist(self.plist)
             except InvalidPlistException:
                 print "Invalid plist, re-init plist file!"
+            except IOError:
+                print "For handling a bug fuse confusing while file not exists, Just ignore it"
             except:
                 print "Unexpected error:", sys.exc_info()[0]
                 print "You should tried again!"
@@ -49,7 +41,7 @@ class IBooks():
 
         if len(self.tree['Books']) > 0:
             for item in self.tree['Books']:
-                self.search_tree[item['Package Hash']] = item
+                self.search_tree[os.path.basename(item['Path'])] = item
 
     def add_book(self, book):
         global books_adding
@@ -76,8 +68,8 @@ class IBooks():
 
 
     def check_book(self, book):
-        if book['hash'] in self.search_tree:
-            item = self.search_tree[book['hash']]
+        if book['filename'] in self.search_tree:
+            item = self.search_tree[book['filename']]
             if item['Genre'] == book['genre'] and item['Name'] == book['title'] and \
                             item['Artist'] == book['author'] and item['Package Hash'] == book['hash']:
                 return True
@@ -192,6 +184,7 @@ def get_book_info(book):
         'title': '',
         'genre': '',
         'author': '',
+        'filename': os.path.basename(book),
         'hash': hash_md5(book)
     }
 
@@ -245,7 +238,6 @@ def addbooks(root_dir, books):
     # init vars
     plist = os.path.join(root_dir, ibooks_plist)
     dest = os.path.dirname(plist)
-    IBooksInstance = IBooks(plist)
 
     if not os.path.exists(dest):
         os.makedirs(dest)
@@ -275,7 +267,7 @@ def addbooks(root_dir, books):
             continue
 
         book_info = get_book_info(book)
-        old_book = IBooksInstance.get_book(book_info['hash'])
+        old_book = IBooksInstance.get_book(os.path.basename(book))
         old_book_delete = False
 
         if old_book and old_book['Genre'] == book_info['genre'] and old_book['Name'] == book_info['title'] and \
@@ -390,6 +382,17 @@ def check_pad(path):
     sys.exit(-1)
 
 if __name__ == '__main__':
+    # global vars begin
+    ipad_root = ''
+    ibooks_plist = 'Books/Purchases/Purchases.plist'
+    IBooksInstance = None
+    book_num = 0
+    books_transfered_num = 0
+    books_failed_list = []
+    books_adding = []
+    is_verbose = False
+    # global vars end
+
     parser = argparse.ArgumentParser(description='Transfer books to ipad')
     parser.add_argument('-d', '--ipad', action='store', dest='IPAD_MOUNTED_POINT',
                         help='Indicate path ipad is mounted; if omitted, '
@@ -409,6 +412,8 @@ if __name__ == '__main__':
         ipad_root = os.getcwd()
     else:
         ipad_root = os.path.abspath(args.IPAD_MOUNTED_POINT)
+
+    IBooksInstance = IBooks(os.path.join(ipad_root, ibooks_plist))
 
     try:
         books = []
