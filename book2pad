@@ -49,8 +49,9 @@ class IBooks():
 
     def remove_book(self, book, delete_file = False):
         dest = os.path.dirname(self.ibooks_path)
-        if book['Package Hash'] in self.search_tree:
-            del self.search_tree[book['Package Hash']]
+        filename = os.path.basename(book['Path'])
+        if filename in self.search_tree:
+            del self.search_tree[filename]
             if delete_file:
                 book_path = os.path.join(dest, os.path.basename(book['Path']))
                 if os.path.isfile(book_path):
